@@ -1,0 +1,88 @@
+version: '3.8'
+
+# =============================================================================
+# Punto A7: Credenciales interpoladas desde .env (NO hardcoded)
+# =============================================================================
+# CRITICAL: Este archivo NO debe contener passwords hardcoded
+# Todas las credenciales se leen desde archivo .env mediante interpolación ${VAR}
+#
+# Para configurar:
+# 1. Copiar .env.example a .env
+# 2. Generar password seguro: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# 3. Configurar POSTGRES_PASSWORD en .env
+# 4. docker compose up
+# =============================================================================
+
+services:
+  app:
+    build: .
+    container_name: voice_orchestrator
+    # Use CMD from Dockerfile (runs startup.sh which includes DB wait + migrations)
+    environment:
+      # ✅ Explicitly map Host Variables (Coolify) to Container
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY}
+      - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - TELNYX_API_KEY=${TELNYX_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # ports:
+    #   - "${PORT:-8000}:8000"  <-- REMOVED for Coolify Ingress (Traefik handles routing)
+    restart: always
+
+  db:
+    image: postgres:15-alpine
+    container_name: voice_db
+    environment:
+      # ✅ Punto A7: Variables interpoladas desde .env
+      # NEVER hardcode passwords here
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data_v2:/var/lib/postgresql/data
+    restart: always
+
+    healthcheck:
+      # Usar variable interpolada para consistencia
+      # Fix: Specify DB name (-d) to avoid defaults to username which causes logs "database Mcalderon does not exist"
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${DB_PORT:-5432}:5432"
+
+  # =============================================================================
+  # Punto A9: Redis for Horizontal Scaling
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: voice_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: always
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+volumes:
+  postgres_data_v2:
+  redis_data:

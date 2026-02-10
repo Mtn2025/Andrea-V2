@@ -1,0 +1,357 @@
+<!-- TAB START: VOZ -->
+<div x-show="activeTab === 'voz'" class="space-y-5 animate-fade-in-up">
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Proveedor
+                TTS</label>
+            <div x-data="customSelect({
+                value: c.voiceProvider,
+                options: [{value: 'azure', label: 'Azure Speech'}]
+            })" x-modelable="value" x-model="c.voiceProvider" @change="updateVoiceLists()" class="relative z-[50]">
+                <button type="button" @click="toggle()" @click.away="clickOutside()"
+                    class="glass-input w-full p-2.5 rounded-lg text-sm flex justify-between items-center transition-colors hover:bg-slate-800">
+                    <span x-text="selectedLabel" class="truncate"></span>
+                    <svg class="w-4 h-4 text-slate-500">
+                        <use href="#icon-chevron-down"></use>
+                    </svg>
+                </button>
+                <div x-show="open" x-transition.opacity.duration.200ms
+                    class="absolute top-full left-0 w-full mt-1 bg-[#1E293B] border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[60]">
+                    <template x-for="opt in options">
+                        <button type="button" @click="select(opt.value)"
+                            class="w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 text-slate-200 flex items-center space-x-2">
+                            <svg x-show="value === opt.value" class="w-3 h-3 text-blue-400">
+                                <use href="#icon-check"></use>
+                            </svg>
+                            <span x-text="opt.label"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+        <div>
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Idioma</label>
+            <div x-data="customSelect({ value: c.voiceLang })"
+                x-effect="options = availableLanguages.map(l => ({value: l.id, label: l.name}))" x-modelable="value"
+                x-model="c.voiceLang" @change="updateVoiceLists()" class="relative z-[45]">
+                <button type="button" @click="toggle()" @click.away="clickOutside()"
+                    class="glass-input w-full p-2.5 rounded-lg text-sm flex justify-between items-center transition-colors hover:bg-slate-800">
+                    <span x-text="selectedLabel" class="truncate"></span>
+                    <svg class="w-4 h-4 text-slate-500">
+                        <use href="#icon-chevron-down"></use>
+                    </svg>
+                </button>
+                <div x-show="open" x-transition
+                    class="absolute top-full left-0 w-full mt-1 bg-[#1E293B] border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[60] custom-scrollbar">
+
+                    <!-- Search -->
+                    <div class="p-2 sticky top-0 bg-[#1E293B] border-b border-slate-700">
+                        <input x-model="search" @click.stop="" type="text" placeholder="Buscar..."
+                            class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none">
+                    </div>
+
+                    <template x-for="opt in filteredOptions">
+                        <button type="button" @click="select(opt.value)"
+                            class="w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 text-slate-200">
+                            <span x-text="opt.label"></span>
+                        </button>
+                    </template>
+                    <div x-show="filteredOptions.length === 0" class="p-3 text-xs text-slate-500 text-center">No
+                        encontrado</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gender Filter -->
+    <div>
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Género</label>
+        <div class="flex space-x-2">
+            <template x-for="g in availableGenders">
+                <button type="button" @click="setGender(g.id)"
+                    :class="{'bg-blue-600 border-blue-500 text-white': currentGender === g.id, 'bg-slate-800 border-slate-700 text-slate-400': currentGender !== g.id}"
+                    class="px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize"
+                    x-text="g.name">
+                </button>
+            </template>
+        </div>
+    </div>
+
+    <div>
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Voz</label>
+        <div x-data="customSelect({ value: c.voiceId })"
+            x-effect="options = availableVoices.map(v => ({value: v.id, label: v.name}))" x-modelable="value"
+            x-model="c.voiceId" @change="updateStyleList()" class="relative z-[40]">
+            <button type="button" @click="toggle()" @click.away="clickOutside()"
+                class="glass-input w-full p-2.5 rounded-lg text-sm flex justify-between items-center transition-colors hover:bg-slate-800">
+                <span x-text="selectedLabel" class="truncate"></span>
+                <svg class="w-4 h-4 text-slate-500">
+                    <use href="#icon-chevron-down"></use>
+                </svg>
+            </button>
+            <div x-show="open" x-transition
+                class="absolute top-full left-0 w-full mt-1 bg-[#1E293B] border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[60] custom-scrollbar">
+                <div class="p-2 sticky top-0 bg-[#1E293B] border-b border-slate-700">
+                    <input x-model="search" @click.stop="" type="text" placeholder="Buscar voz..."
+                        class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none">
+                </div>
+                <template x-for="opt in filteredOptions">
+                    <button type="button" @click="select(opt.value)"
+                        class="w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 text-slate-200">
+                        <span x-text="opt.label"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="availableStyles.length > 0">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Estilo
+            Emocional</label>
+        <div x-data="customSelect({ value: c.voiceStyle })"
+            x-effect="options = [{value:'', label:'(Default)'}, ...availableStyles.map(s => ({value: s.id, label: s.label}))]"
+            x-modelable="value" x-model="c.voiceStyle" class="relative z-[30]">
+            <button type="button" @click="toggle()" @click.away="clickOutside()"
+                class="glass-input w-full p-2.5 rounded-lg text-sm flex justify-between items-center transition-colors hover:bg-slate-800">
+                <span x-text="selectedLabel" class="truncate"></span>
+                <svg class="w-4 h-4 text-slate-500">
+                    <use href="#icon-chevron-down"></use>
+                </svg>
+            </button>
+            <div x-show="open" x-transition
+                class="absolute top-full left-0 w-full mt-1 bg-[#1E293B] border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[60] custom-scrollbar">
+                <template x-for="opt in filteredOptions">
+                    <button type="button" @click="select(opt.value)"
+                        class="w-full text-left px-3 py-2 text-sm hover:bg-slate-700/50 text-slate-200">
+                        <span x-text="opt.label"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label
+                class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                <span>Velocidad</span>
+                <span class="text-blue-400" x-text="c.voiceSpeed"></span>
+            </label>
+            <input type="range" x-model="c.voiceSpeed" min="0.5" max="2.0" step="0.1"
+                class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+            <p class="text-[10px] text-slate-500 mt-1">Factor de velocidad (0.5 = Lento, 1.0 =
+                Normal, 2.0 = Rápido)</p>
+        </div>
+    </div>
+
+    <!-- Smart Interruption Moved to Transcriber Tab -->
+
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Sonido
+                de Fondo</label>
+            <select x-model="c.voiceBgSound" class="glass-input w-full p-2.5 rounded-lg text-sm">
+                <option value="none">🔇 Silencio</option>
+                <option value="office">🏢 Oficina</option>
+                <option value="cafe">☕ Cafetería</option>
+                <option value="callcenter">📞 Call Center</option>
+                <option value="custom">🔗 URL Personalizada</option>
+            </select>
+        </div>
+        <div x-show="c.voiceBgSound === 'custom'">
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">URL
+                Audio</label>
+            <input type="text" x-model="c.voiceBgUrl" class="glass-input w-full p-2.5 rounded-lg text-sm"
+                placeholder="https://...">
+        </div>
+    </div>
+
+    <!-- Voice Expression Controls (NEW - Azure TTS SSML) -->
+    <div class="space-y-4 mt-6 pt-6 border-t border-slate-700">
+        <h3 class="text-sm font-bold text-purple-400 uppercase tracking-wider mb-3">
+            🎭 Control de Expresión
+        </h3>
+
+        <!-- Pitch Control -->
+        <div>
+            <label
+                class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                <span>Tono (Pitch)</span>
+                <span class="text-blue-400" x-text="c.voicePitch + 'st'"></span>
+            </label>
+            <input type="range" x-model.number="c.voicePitch" min="-12" max="12" step="1"
+                class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500">
+            <p class="text-[10px] text-slate-500 mt-1">
+                -12 = Más grave, 0 = Normal, +12 = Más agudo
+            </p>
+        </div>
+
+        <!-- Volume Control -->
+        <div>
+            <label
+                class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                <span>Volumen</span>
+                <span class="text-blue-400" x-text="c.voiceVolume"></span>
+            </label>
+            <input type="range" x-model.number="c.voiceVolume" min="50" max="100" step="5"
+                class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500">
+            <p class="text-[10px] text-slate-500 mt-1">
+                50 = Suave, 100 = Normal (recomendado)
+            </p>
+        </div>
+
+        <!-- Style Degree (only visible when style is selected) -->
+        <div x-show="c.voiceStyle !== ''">
+            <label
+                class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                <span>Intensidad Emocional</span>
+                <span class="text-blue-400" x-text="c.voiceStyleDegree"></span>
+            </label>
+            <input type="range" x-model.number="c.voiceStyleDegree" min="0.5" max="2.0" step="0.1"
+                class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500">
+            <p class="text-[10px] text-slate-500 mt-1">
+                0.5 = Sutil, 1.0 = Normal, 2.0 = Exagerado
+            </p>
+        </div>
+    </div>
+
+    <!-- ELEVENLABS ADVANCED (CONDITIONAL) -->
+    <div x-show="c.voiceProvider === 'elevenlabs'"
+        class="space-y-4 mt-6 pt-6 border-t border-slate-700 animate-fade-in">
+        <h3 class="text-sm font-bold text-green-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            🧪 ElevenLabs Avanzado
+        </h3>
+
+        <div class="grid grid-cols-2 gap-4">
+            <!-- Stability -->
+            <div>
+                <label
+                    class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                    <span>Estabilidad</span>
+                    <span class="text-green-400" x-text="c.voiceStability"></span>
+                </label>
+                <input type="range" x-model.number="c.voiceStability" min="0.0" max="1.0" step="0.05"
+                    class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-green-500">
+                <p class="text-[10px] text-slate-500 mt-1">Más bajo = Más emotivo/varía.</p>
+            </div>
+
+            <!-- Similarity -->
+            <div>
+                <label
+                    class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                    <span>Claridad / Similitud</span>
+                    <span class="text-green-400" x-text="c.voiceSimilarityBoost"></span>
+                </label>
+                <input type="range" x-model.number="c.voiceSimilarityBoost" min="0.0" max="1.0" step="0.05"
+                    class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-green-500">
+                <p class="text-[10px] text-slate-500 mt-1">Más alto = Más fiel a la voz original.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+            <!-- Style Exaggeration -->
+            <div>
+                <label
+                    class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block flex justify-between">
+                    <span>Exageración Estilo</span>
+                    <span class="text-green-400" x-text="c.voiceStyleExaggeration"></span>
+                </label>
+                <input type="range" x-model.number="c.voiceStyleExaggeration" min="0.0" max="1.0" step="0.05"
+                    class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-green-500">
+            </div>
+
+            <!-- Booleans -->
+            <div class="space-y-2">
+                <label class="flex items-center space-x-2 cursor-pointer group">
+                    <input type="checkbox" x-model="c.voiceSpeakerBoost"
+                        class="form-checkbox bg-slate-700 border-slate-600 rounded text-green-500 focus:ring-offset-0 focus:ring-0">
+                    <span class="text-xs text-slate-300 group-hover:text-white transition-colors">Boost Speaker (Mejor
+                        Calidad)</span>
+                </label>
+
+                <label class="flex items-center space-x-2 cursor-pointer group">
+                    <input type="checkbox" x-model="c.voiceMultilingual"
+                        class="form-checkbox bg-slate-700 border-slate-600 rounded text-green-500 focus:ring-offset-0 focus:ring-0">
+                    <span class="text-xs text-slate-300 group-hover:text-white transition-colors">Modo Multilingüe
+                        (v2)</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUMANIZATION SETTINGS -->
+    <!-- HUMANIZATION SETTINGS (OCULTO EN SIMULADOR) -->
+    <div class="space-y-4 mt-6 pt-6 border-t border-slate-700">
+        <h3 class="text-sm font-bold text-pink-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            🗣️ Humanización
+        </h3>
+
+        <div class="grid grid-cols-2 gap-4">
+            <label
+                class="flex items-center space-x-3 cursor-pointer p-3 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-pink-500/50 transition-colors">
+                <input type="checkbox" x-model="c.voiceFillerInjection"
+                    class="form-checkbox h-4 w-4 bg-slate-700 border-slate-600 rounded text-pink-500 focus:ring-offset-0 focus:ring-0">
+                <div class="flex flex-col">
+                    <span class="text-xs font-semibold text-slate-200">Inyección de "Muletillas"</span>
+                    <span class="text-[10px] text-slate-400">Agrega "eh...", "hmm..." natural</span>
+                </div>
+            </label>
+
+            <label
+                class="flex items-center space-x-3 cursor-pointer p-3 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-pink-500/50 transition-colors">
+                <input type="checkbox" x-model="c.voiceBackchanneling"
+                    class="form-checkbox h-4 w-4 bg-slate-700 border-slate-600 rounded text-pink-500 focus:ring-offset-0 focus:ring-0">
+                <div class="flex flex-col">
+                    <span class="text-xs font-semibold text-slate-200">Escucha Activa</span>
+                    <span class="text-[10px] text-slate-400">Dice "ajá", "sí" mientras escuchas</span>
+                </div>
+            </label>
+        </div>
+
+        <div>
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Normalización de
+                Texto</label>
+            <select x-model="c.textNormalizationRule" class="glass-input w-full p-2.5 rounded-lg text-sm">
+                <option value="auto">🤖 Automático (Default)</option>
+                <option value="verbal">🗣️ Verbalizado ("123" -> "ciento veintitrés")</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- TECHNICAL SETTINGS (OCULTO EN SIMULADOR) -->
+    <div x-data="{ showTech: false }" class="space-y-4 mt-6 pt-6 border-t border-slate-700">
+        <button type="button" @click="showTech = !showTech"
+            class="flex items-center justify-between w-full text-xs font-bold text-slate-500 uppercase tracking-wider hover:text-white transition-colors">
+            <span>⚙️ Ajustes Técnicos</span>
+            <svg class="w-4 h-4 transform transition-transform" :class="showTech ? 'rotate-180' : ''">
+                <use href="#icon-chevron-down"></use>
+            </svg>
+        </button>
+
+        <div x-show="showTech" x-collapse class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Latencia /
+                    Calidad</label>
+                <select x-model.number="c.ttsLatencyOptimization" class="glass-input w-full p-2.5 rounded-lg text-sm">
+                    <option value="0">⭐ Calidad Máxima (Default)</option>
+                    <option value="1">🚀 Latencia Baja (Normal)</option>
+                    <option value="2">⚡ Latencia Ultra Baja</option>
+                    <option value="3">🔥 Modo Turbo (Menor Calidad)</option>
+                </select>
+                <p class="text-[10px] text-slate-500 mt-1">Afecta calidad de audio vs velocidad de respuesta.</p>
+            </div>
+
+            <div>
+                <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Formato de
+                    Salida</label>
+                <select x-model="c.ttsOutputFormat" class="glass-input w-full p-2.5 rounded-lg text-sm">
+                    <option value="pcm_16000">PCM 16kHz (WAV)</option>
+                    <option value="pcm_8000">PCM 8kHz (Teléfono)</option>
+                    <option value="mp3_44100_128">MP3 44.1kHz 128kbps</option>
+                    <option value="ulaw_8000">Mu-Law 8kHz (Telephony)</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+</div>

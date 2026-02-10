@@ -1,0 +1,131 @@
+# =============================================================================
+# Dockerfile - Asistente Andrea (Optimized Multi-Stage Build)
+# =============================================================================
+# Production-ready image with health checks and auto-migrations
+# Compatible with Coolify deployment
+# Punto A10: Non-root user for security
+# =============================================================================
+
+# =============================================================================
+# Stage 1: Builder - Build dependencies and install packages
+# =============================================================================
+# FORCE AMD64: Azure Speech SDK only supports x86_64
+FROM --platform=linux/amd64 python:3.11 as builder
+
+WORKDIR /build
+
+# Install build dependencies
+# Start with 'fat' image but ensure Rust is present for Cryptography if needed
+RUN apt-get update && apt-get install -y \
+    cargo \
+    rustc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements-core.txt requirements-minimal.txt requirements-prod.txt requirements.txt ./
+
+# STAGED INSTALLATION - Identify failing package
+# Stage 1: Core (FastAPI, Uvicorn) - Should NEVER fail
+RUN echo "===== STAGE 1: Core packages =====" && \
+    pip install --upgrade pip && \
+    pip install --no-cache-dir --user --prefer-binary \
+    fastapi~=0.128.0 \
+    uvicorn[standard]~=0.40.0 \
+    python-dotenv~=1.2.1 \
+    pydantic-settings~=2.12.0 && \
+    echo "✅ Stage 1 complete"
+
+# Stage 2: Database
+RUN echo "===== STAGE 2: Database packages =====" && \
+    pip install --no-cache-dir --user --prefer-binary \
+    sqlalchemy~=2.0.45 \
+    asyncpg~=0.31.0 \
+    alembic~=1.17.2 && \
+    echo "✅ Stage 2 complete"
+
+# Stage 3: Azure Speech (CRITICAL TEST)
+RUN echo "===== STAGE 3: Azure Speech SDK =====" && \
+    pip install --no-cache-dir --user --prefer-binary \
+    azure-cognitiveservices-speech>=1.34.0 && \
+    echo "✅ Stage 3 complete"
+
+# Stage 4: Remaining packages
+# Reverting to standard install now that Twilio (the culprit) is removed.
+# This ensures all transitive dependencies (like itsdangerous) are correctly installed.
+RUN echo "===== STAGE 4: All Remaining Packages =====" && \
+    pip install --no-cache-dir --user --prefer-binary -r requirements.txt && \
+    echo "✅ Stage 4 complete"
+
+# =============================================================================
+# Stage 2: Runtime - Minimal production image
+# =============================================================================
+FROM --platform=linux/amd64 python:3.11-slim
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    libasound2 \
+    libgstreamer1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    libuuid1 \
+    tzdata \
+    procps \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+LABEL maintainer="Martin Team <admin@voice-assistant.com>" \
+    version="2.0" \
+    description="Asistente Andrea Voice Orchestrator"
+
+# =============================================================================
+# Punto A10: Create non-root user for security
+# =============================================================================
+# Running as root is a security risk. Create 'app' user with UID 1000.
+# This prevents privilege escalation and reduces attack surface.
+# =============================================================================
+RUN groupadd -r app --gid=1000 && \
+    useradd -r -g app --uid=1000 --home-dir=/app --shell=/bin/bash app
+
+# Copy Python packages from builder (to app user home)
+COPY --from=builder --chown=app:app /root/.local /home/app/.local
+
+# Copy application code with correct ownership
+COPY --chown=app:app . .
+
+# Install Node.js dependencies for Vite/Tailwind CSS compilation
+# Change ownership to app:app so Vite can write temp files during build
+RUN npm install && chown -R app:app node_modules
+
+# Fix line endings for shell scripts (Windows CRLF -> Unix LF)
+# This prevents "exec: no such file or directory" errors
+RUN sed -i 's/\r$//' scripts/startup.sh
+
+# Make startup script executable
+RUN chmod +x scripts/startup.sh
+
+# Set environment
+ENV PATH=/home/app/.local/bin:$PATH
+ENV PYTHONPATH=/home/app/.local/lib/python3.11/site-packages:/app
+ENV PYTHONUNBUFFERED=1
+
+# Health check - calls /api/system/health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/api/system/health || exit 1
+
+# Expose port
+EXPOSE 8000
+
+# =============================================================================
+# Punto A10: Switch to non-root user
+# =============================================================================
+# CRITICAL: This must be BEFORE CMD. Everything after this runs as 'app' user.
+# =============================================================================
+USER app
+
+# Run startup script (includes migrations)
+CMD ["./scripts/startup.sh"]

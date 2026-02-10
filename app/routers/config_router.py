@@ -1,0 +1,467 @@
+"""
+Configuration Router - Modular Config Management.
+
+Handles all agent configuration endpoints (browser, twilio, telnyx, core).
+"""
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth_simple import verify_api_key
+from app.db.database import get_db
+
+# HEXAGONAL SEPARATION: Each profile has its own schema file
+from app.schemas.browser_schemas import BrowserConfigUpdate
+
+# Core config remains in config_schemas for now
+from app.schemas.config_schemas import CoreConfigUpdate
+from app.schemas.telnyx_schemas import TelnyxConfigUpdate
+from app.schemas.twilio_schemas import TwilioConfigUpdate
+from app.services.db_service import db_service
+from app.utils.config_utils import update_profile_config
+
+logger = logging.getLogger(__name__)
+
+# Field mapping for frontend (camelCase) to backend (snake_case)
+FIELD_ALIASES = {
+    # LLM
+    'provider': 'llm_provider',
+    'model': 'llm_model',
+    'temp': 'temperature',
+    'tokens': 'max_tokens',
+    'prompt': 'system_prompt',
+    'msg': 'first_message',
+    'mode': 'first_message_mode',
+
+    # TTS
+    'voiceProvider': 'tts_provider',
+    'voiceId': 'voice_name',
+    'voiceStyle': 'voice_style',
+    'voiceSpeed': 'voice_speed',
+    'voicePacing': 'voice_pacing_ms',
+    'voicePitch': 'voice_pitch',
+    'voiceVolume': 'voice_volume',
+    'voiceStyleDegree': 'voice_style_degree',
+    'voiceBgSound': 'background_sound',
+    'voiceBgUrl': 'background_sound_url',
+    'voiceLang': 'voice_language',
+
+    # Style
+    'responseLength': 'response_length',
+    'conversationTone': 'conversation_tone',
+    'conversationFormality': 'conversation_formality',
+    'conversationPacing': 'conversation_pacing',
+
+    # STT
+    'sttProvider': 'stt_provider',
+    'sttLang': 'stt_language',
+    'interruptWords': 'interruption_threshold',
+    'interruptRMS': 'voice_sensitivity',
+    'silence': 'silence_timeout_ms',
+    'blacklist': 'hallucination_blacklist',
+    'inputMin': 'input_min_characters',
+    'vadThreshold': 'vad_threshold',
+
+    # Features
+    'denoise': 'enable_denoising',
+    'krisp': 'enable_krisp_telnyx',
+    'vad': 'enable_vad_telnyx',
+    'maxDuration': 'max_duration',
+    'maxRetries': 'inactivity_max_retries',
+    'idleTimeout': 'idle_timeout',
+    'idleMessage': 'idle_message',
+    'enableRecording': 'enable_recording_telnyx',
+    'amdConfig': 'amd_config_telnyx',
+    'enableEndCall': 'enable_end_call',
+    'dialKeypad': 'enable_dial_keypad',
+    'transferNum': 'transfer_phone_number',
+
+    # Audio
+    'noiseSuppressionLevel': 'noise_suppression_level',
+    'audioCodec': 'audio_codec',
+    'enableBackchannel': 'enable_backchannel',
+    'silenceTimeoutMs': 'silence_timeout_ms',
+    'silenceTimeoutMsPhone': 'silence_timeout_ms_phone',
+
+    # Advanced LLM
+    'contextWindow': 'context_window',
+    'frequencyPenalty': 'frequency_penalty',
+    'presencePenalty': 'presence_penalty',
+    'toolChoice': 'tool_choice',
+    'dynamicVarsEnabled': 'dynamic_vars_enabled',
+    'dynamicVars': 'dynamic_vars',
+
+    # Telephony
+    'twilioAccountSid': 'twilio_account_sid',
+    'twilioAuthToken': 'twilio_auth_token',
+    'twilioFromNumber': 'twilio_from_number',
+    'telnyxApiKey': 'telnyx_api_key',
+    'telnyxConnectionId': 'telnyx_connection_id',
+    'callerIdTelnyx': 'caller_id_telnyx',
+
+    # SIP Trunking
+    'sipTrunkUriPhone': 'sip_trunk_uri_phone',
+    'sipAuthUserPhone': 'sip_auth_user_phone',
+    'sipAuthPassPhone': 'sip_auth_pass_phone',
+    'fallbackNumberPhone': 'fallback_number_phone',
+    'geoRegionPhone': 'geo_region_phone',
+    'sipTrunkUriTelnyx': 'sip_trunk_uri_telnyx',
+    'sipAuthUserTelnyx': 'sip_auth_user_telnyx',
+    'sipAuthPassTelnyx': 'sip_auth_pass_telnyx',
+    'fallbackNumberTelnyx': 'fallback_number_telnyx',
+    'geoRegionTelnyx': 'geo_region_telnyx',
+
+    # Compliance
+    'recordingChannelsPhone': 'recording_channels_phone',
+    'recordingChannelsTelnyx': 'recording_channels_telnyx',
+    'hipaaEnabledPhone': 'hipaa_enabled_phone',
+    'hipaaEnabledTelnyx': 'hipaa_enabled_telnyx',
+    'dtmfListeningEnabledPhone': 'dtmf_listening_enabled_phone',
+
+    # System
+    'concurrencyLimit': 'concurrency_limit',
+    'spendLimitDaily': 'spend_limit_daily',
+    'environment': 'environment',
+    'privacyMode': 'privacy_mode',
+    'auditLogEnabled': 'audit_log_enabled',
+}
+
+router = APIRouter(
+    prefix="/api/config",
+    tags=["configuration"],
+    dependencies=[Depends(verify_api_key)]
+)
+
+
+def _map_db_to_frontend(config, profile: str) -> dict:
+    """
+    Auto-map DB columns to frontend aliases using schema definitions.
+    
+    Args:
+        config: AgentConfig SQLAlchemy model
+        profile: One of 'browser', 'twilio', 'telnyx'
+    
+    Returns:
+        Dict with frontend camelCase keys and values from DB
+    """
+    # Select the appropriate schema
+    if profile == "telnyx":
+        schema_class = TelnyxConfigUpdate
+    elif profile == "twilio":
+        schema_class = TwilioConfigUpdate
+    elif profile == "browser":
+        schema_class = BrowserConfigUpdate
+    else:
+        raise ValueError(f"Invalid profile: {profile}")
+    
+    result = {}
+    
+    # Iterate through schema fields
+    for field_name, field_info in schema_class.model_fields.items():
+        # Get the frontend alias (camelCase)
+        frontend_key = field_info.alias or field_name
+        
+        # The field_name in the schema ALREADY includes the suffix
+        # e.g., for Telnyx: 'system_prompt_telnyx', 'llm_provider_telnyx'
+        # e.g., for Browser: 'system_prompt', 'llm_provider'
+        db_column = field_name
+        
+        # Extract value from config
+        value = getattr(config, db_column, None)
+        
+        # Only include non-None values
+        if value is not None:
+            result[frontend_key] = value
+    
+    return result
+
+
+@router.get("/")
+async def get_config(
+    profile: str = "browser",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get current configuration for specific profile.
+    
+    Args:
+        profile: One of 'browser', 'twilio', 'telnyx' (default: 'browser')
+    
+    Returns:
+        Dict with frontend-formatted keys (camelCase) and values from DB
+    """
+    # Validate profile
+    if profile not in ["browser", "twilio", "telnyx"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid profile '{profile}'. Must be one of: browser, twilio, telnyx"
+        )
+    
+    try:
+        config = await db_service.get_agent_config(db)
+        if not config:
+            raise HTTPException(status_code=404, detail="Config not found")
+        
+        # Map DB columns to frontend aliases based on profile
+        profile_data = _map_db_to_frontend(config, profile)
+        
+        logger.info(f"✅ Retrieved config for profile '{profile}' ({len(profile_data)} fields)")
+        return profile_data
+        
+    except ValueError as e:
+        # Profile validation error
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch config for profile '{profile}': {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/browser")
+async def update_browser_config(
+    request: Request,
+    config: BrowserConfigUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update Browser/Simulator profile configuration."""
+    try:
+        logger.info("[CONFIG] Updating Browser profile configuration")
+        updated_config = await update_profile_config(
+            db=db,
+            profile="browser",
+            data_dict=config.model_dump(exclude_unset=True)
+        )
+
+        if not updated_config:
+            raise HTTPException(status_code=500, detail="Failed to update browser config")
+
+        return {"status": "ok", "message": "Browser config updated"}
+
+    except Exception as e:
+        logger.error(f"❌ Browser config update failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.patch("/twilio")
+async def update_twilio_config(
+    request: Request,
+    config: TwilioConfigUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update Twilio/Phone profile configuration."""
+    try:
+        logger.info("[CONFIG] Updating Twilio profile configuration")
+        updated_config = await update_profile_config(
+            db=db,
+            profile="twilio",
+            data_dict=config.model_dump(exclude_unset=True)
+        )
+
+        if not updated_config:
+            raise HTTPException(status_code=500, detail="Failed to update Twilio config")
+
+        return {"status": "ok", "message": "Twilio config updated"}
+
+    except Exception as e:
+        logger.error(f"❌ Twilio config update failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.patch("/telnyx")
+async def update_telnyx_config(
+    request: Request,
+    config: TelnyxConfigUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update Telnyx profile configuration."""
+    try:
+        logger.info("[CONFIG] Updating Telnyx profile configuration")
+        updated_config = await update_profile_config(
+            db=db,
+            profile="telnyx",
+            data_dict=config.model_dump(exclude_unset=True)
+        )
+
+        if not updated_config:
+            raise HTTPException(status_code=500, detail="Failed to update Telnyx config")
+
+        return {"status": "ok", "message": "Telnyx config updated"}
+
+    except Exception as e:
+        logger.error(f"❌ Telnyx config update failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.patch("/core")
+async def update_core_config(
+    request: Request,
+    config: CoreConfigUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update Core/Global configuration."""
+    try:
+        logger.info("[CONFIG] Updating Core configuration")
+        updated_config = await update_profile_config(
+            db=db,
+            profile="core",
+            data_dict=config.model_dump(exclude_unset=True)
+        )
+
+        if not updated_config:
+            raise HTTPException(status_code=500, detail="Failed to update core config")
+
+        return {"status": "ok", "message": "Core config updated"}
+
+    except Exception as e:
+        logger.error(f"❌ Core config update failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/patch")
+async def patch_config(request: Request, db: AsyncSession = Depends(get_db)):
+    """Accepts JSON payload to update specific config fields."""
+    try:
+        body = await request.json()
+        logger.info(f"[PATCH] Received config patch: {list(body.keys())}")
+
+        config = await db_service.get_agent_config(db)
+        if not config:
+            raise HTTPException(status_code=404, detail="Agent config not found")
+
+        config_dict = config.to_dict() if hasattr(config, 'to_dict') else config.__dict__
+        config_dict.update(body)
+
+        await db_service.update_agent_config(db, config_dict)
+        return {"status": "ok", "updated_fields": list(body.keys())}
+
+    except Exception as e:
+        logger.error(f"❌ Config patch failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/update-json")
+async def update_config_json(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    AJAX/JSON config update endpoint with field normalization.
+    Maps UI camelCase to DB snake_case.
+    """
+    try:
+        data = await request.json()
+        logger.info(f"🔄 [CONFIG-JSON] Received update payload: {len(data)} keys")
+
+        current_config = await db_service.get_agent_config(db)
+        updated_count = 0
+        normalized_count = 0
+
+        for key, value in data.items():
+            if key in ["id", "name", "created_at", "api_key"]:
+                continue
+
+            normalized_key = FIELD_ALIASES.get(key, key)
+            if normalized_key != key:
+                normalized_count += 1
+
+            if hasattr(current_config, normalized_key):
+                normalized_value = value
+                if normalized_value == "":
+                    normalized_value = None
+                elif isinstance(normalized_value, str):
+                    if normalized_value.lower() == 'true':
+                        normalized_value = True
+                    elif normalized_value.lower() == 'false':
+                        normalized_value = False
+                    elif normalized_value.replace('.', '', 1).replace('-', '', 1).isdigit():
+                        normalized_value = float(normalized_value) if '.' in normalized_value else int(normalized_value)
+
+                setattr(current_config, normalized_key, normalized_value)
+                updated_count += 1
+            else:
+                pass
+
+        await db.commit()
+        await db.refresh(current_config)
+        logger.info(f"✅ [CONFIG-JSON] Updated {updated_count} fields ({normalized_count} normalized).")
+
+        return {
+            "status": "success",
+            "updated": updated_count,
+            "normalized": normalized_count
+        }
+
+    except Exception as e:
+        logger.error(f"❌ [CONFIG-JSON] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+# =============================================================================
+# DYNAMIC OPTIONS ENDPOINTS (Real Connection)
+# =============================================================================
+
+@router.get("/options/tts/languages")
+async def get_tts_languages(db: AsyncSession = Depends(get_db)):
+    """
+    Get list of available TTS languages dynamically from Azure.
+    """
+    try:
+        from app.adapters.outbound.tts.azure_tts_adapter import AzureTTSAdapter
+        # Instantiate transient adapter to fetch data (uses internal cache)
+        adapter = AzureTTSAdapter()
+        languages = await adapter.get_available_languages()
+        await adapter.close()
+        return {"languages": languages}
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch TTS languages: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch languages from provider")
+
+
+@router.get("/options/tts/voices")
+async def get_tts_voices(
+    language: str | None = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get list of available TTS voices, optionally filtered by language.
+    """
+    try:
+        from app.adapters.outbound.tts.azure_tts_adapter import AzureTTSAdapter
+        adapter = AzureTTSAdapter()
+        voices = await adapter.get_available_voices(language=language)
+        
+        # Format for frontend
+        voices_list = [
+            {
+                "id": v.id,
+                "name": v.name,
+                "gender": v.gender,
+                "locale": v.locale,
+                "styles": await adapter.get_voice_styles(v.id) # Include styles eagerly
+            }
+            for v in voices
+        ]
+        
+        await adapter.close()
+        return {"voices": voices_list}
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch TTS voices: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch voices from provider")
+
+
+@router.get("/options/tts/styles")
+async def get_tts_styles(
+    voice_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get list of available styles for a specific voice.
+    """
+    try:
+        from app.adapters.outbound.tts.azure_tts_adapter import AzureTTSAdapter
+        adapter = AzureTTSAdapter()
+        styles = await adapter.get_voice_styles(voice_id)
+        await adapter.close()
+        return {"styles": styles}
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch TTS styles: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch styles from provider")
