@@ -2,14 +2,14 @@
 # Excludes: pytest, ruff, pip-audit, opentelemetry (dev/monitoring tools)
 
 # Web Framework
-fastapi~=0.128.0
+fastapi~=0.128.7
 uvicorn[standard]~=0.40.0
 websockets~=15.0.1
 
 # Database
-sqlalchemy~=2.0.45
+sqlalchemy~=2.0.46
 asyncpg~=0.31.0
-alembic~=1.17.2
+alembic~=1.18.4
 
 # AI/ML Services
 azure-cognitiveservices-speech>=1.34.0
@@ -23,7 +23,7 @@ python-dotenv~=1.2.1
 pydantic-settings~=2.12.0
 
 # Forms
-python-multipart~=0.0.21
+python-multipart~=0.0.22
 
 # Templates
 jinja2~=3.1.6
