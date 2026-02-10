@@ -6,16 +6,60 @@ para transcribe_audio (legacy AzureSTTAdapter.transcribe_audio usa Groq Whisper)
 
 Referencia legacy: app/adapters/outbound/stt/azure_stt_adapter.py (método transcribe_audio).
 Decisión: Solo Groq Whisper; sin Azure STT en V2 Fase 3 para mantener dependencias mínimas.
+
+Groq Whisper exige un archivo de audio válido (p. ej. WAV con cabecera). El front/envío
+suele mandar PCM crudo; aquí empaquetamos PCM en WAV (cabecera RIFF) antes de enviar.
 """
 
 import io
 import logging
+import struct
 
 from groq import AsyncGroq
 
 from app_v2.domain.ports import STTConfig, STTPort
 
 logger = logging.getLogger(__name__)
+
+
+# Mínimo de bytes PCM para enviar a Groq (evita 400 en fragmentos muy cortos/silencio).
+# ~0.5 s a 16 kHz mono 16-bit = 16000 bytes.
+MIN_PCM_BYTES_FOR_GROQ = 8_000
+
+
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int, channels: int = 1) -> bytes:
+    """
+    Envuelve PCM 16-bit en cabecera WAV (RIFF) para que Groq Whisper acepte el archivo.
+    """
+    if not pcm_bytes:
+        return b""
+    # Asegurar longitud par (muestras de 2 bytes)
+    pcm_bytes = pcm_bytes[: (len(pcm_bytes) // 2) * 2]
+    if not pcm_bytes:
+        return b""
+    num_samples = len(pcm_bytes) // 2
+    data_size = num_samples * 2
+    byte_rate = sample_rate * channels * 2
+    block_align = channels * 2
+    # RIFF header: riff_id, file_size, wave_id, fmt_id, fmt_size, audio_format, num_channels, sample_rate, byte_rate, block_align, bits_per_sample, data_id, data_size
+    file_size = 36 + data_size
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        file_size,
+        b"WAVE",
+        b"fmt ",
+        16,  # fmt chunk size
+        1,   # PCM
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        16,  # bits per sample
+        b"data",
+        data_size,
+    )
+    return header + pcm_bytes
 
 
 class GroqWhisperSTTAdapter(STTPort):
@@ -30,7 +74,21 @@ class GroqWhisperSTTAdapter(STTPort):
     async def transcribe_audio(self, audio_bytes: bytes, config: STTConfig) -> str:
         if not audio_bytes:
             return ""
-        audio_file = io.BytesIO(audio_bytes)
+        # Fragmentos demasiado cortos → Groq suele devolver 400; no enviar.
+        if len(audio_bytes) < MIN_PCM_BYTES_FOR_GROQ and audio_bytes[:4] != b"RIFF":
+            return ""
+        # Groq exige archivo de audio válido. Si ya es WAV (RIFF), usar tal cual; si no, PCM → WAV.
+        if audio_bytes[:4] == b"RIFF":
+            wav_bytes = audio_bytes
+        else:
+            wav_bytes = _pcm_to_wav(
+                audio_bytes,
+                sample_rate=config.sample_rate,
+                channels=config.channels,
+            )
+        if not wav_bytes:
+            return ""
+        audio_file = io.BytesIO(wav_bytes)
         audio_file.name = "audio.wav"
         try:
             transcription = await self._client.audio.transcriptions.create(

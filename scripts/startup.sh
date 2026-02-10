@@ -74,10 +74,8 @@ alembic upgrade head || {
 }
 
 # =============================================================================
-# 2.1 Compile CSS (Vite + Tailwind)
+# 2.1 CSS: compilado en Dockerfile (npm run build en imagen). No ejecutar aquí.
 # =============================================================================
-echo "🎨 Compiling Tailwind CSS via Vite..."
-npm run build || echo "⚠️ CSS Build failed (non-critical)"
 
 # =============================================================================
 # 2.2 Verify/Download Models (Optional)

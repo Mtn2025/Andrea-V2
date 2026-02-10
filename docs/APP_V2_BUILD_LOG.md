@@ -628,12 +628,45 @@ app_v2/
 
 ---
 
+## Paso 11 — Correcciones post-despliegue (Coolify / simulador)
+
+**Contexto**: Tras despliegue en Coolify aparecieron: (1) fallo de build Vite en arranque (EACCES al escribir en `/app`); (2) Groq Whisper 400 "could not process file - is it a valid media file?" al usar simulador/telephony con client=browser.
+
+### Decisión 11.1 — Build Vite en la imagen, no en arranque
+
+- **Decisión**: El CSS (Vite + Tailwind) se compila **durante el build de la imagen Docker** (`RUN npm run build` en el Dockerfile), no en `scripts/startup.sh`. Así no se escribe en `/app` con el usuario `app` en runtime y se evita EACCES en entornos donde el filesystem es solo lectura o con permisos restrictivos.
+- **Motivo**: Arranque estable en Coolify; sin mensaje "CSS Build failed (non-critical)" ni errores de permisos.
+- **Archivos**: `Dockerfile` (añadido `npm run build` tras `npm install`; `chown` incluye `app/static/css`), `scripts/startup.sh` (eliminada la sección que ejecutaba `npm run build`).
+
+### Decisión 11.2 — Audio a Groq Whisper en formato WAV válido
+
+- **Decisión**: Groq Whisper exige un archivo de audio válido (p. ej. WAV con cabecera). El flujo (simulador/telephony) envía **PCM crudo**; el adapter STT V2 debe empaquetar ese PCM en WAV (cabecera RIFF + datos) antes de llamar a la API. En `app_v2/adapters/outbounds/stt_groq_adapter.py` se añade `_pcm_to_wav(pcm_bytes, sample_rate, channels)` y en `transcribe_audio` se usa: si `audio_bytes` empieza por `RIFF`, se envía tal cual; si no, se convierte a WAV con la cabecera y se envía ese buffer.
+- **Motivo**: Eliminar el 400 "could not process file"; el simulador y la telephony (browser) funcionan con STT Groq sin cambiar el formato de envío desde el front.
+- **Archivos**: `app_v2/adapters/outbounds/stt_groq_adapter.py` (función `_pcm_to_wav`, uso de `STTConfig.sample_rate` y `channels`; detección de WAV ya presente).
+
+### Decisión 11.3 — Fragmentos muy cortos y despliegue
+
+- **Decisión**: Fragmentos PCM con menos de 8000 bytes (~0,5 s a 16 kHz) no se envían a Groq (se devuelve `""`); así se evitan 400 en los primeros tramos de silencia o chunks mínimos. La longitud del PCM se trunca a número par de bytes antes de construir el WAV.
+- **Despliegue**: Para que el fix tenga efecto, es **necesario reconstruir la imagen Docker y volver a desplegar** (push a main + rebuild en Coolify, o `docker compose build --no-cache app` y redeploy). Si los logs siguen mostrando el archivo enviado a Groq empezando por `\x00\x00...` (PCM crudo) en lugar de `RIFF`, la instancia sigue ejecutando código antiguo.
+
+---
+
+## Archivos creados/modificados en Paso 11
+
+| Ruta | Propósito |
+|------|-----------|
+| `Dockerfile` | `npm run build` en etapa de imagen; chown de `app/static/css`. |
+| `scripts/startup.sh` | Eliminado bloque "Compile Tailwind CSS via Vite" (build ya en imagen). |
+| `app_v2/adapters/outbounds/stt_groq_adapter.py` | `_pcm_to_wav()`; empaquetado PCM→WAV; mínimo 8000 bytes PCM para enviar; longitud par; detección de WAV. |
+
+---
+
 ## Próximos pasos (no ejecutados aún)
 
 - Ninguno pendiente en el plan actual (Fases 1–6 completadas).
 
 ---
 
-*Actualizado: 2026-02-09 — Paso 10 (Fase 6 preparación para producción) completado y documentado.*
+*Actualizado: 2026-02-10 — Paso 11 (correcciones post-despliegue: Vite en Dockerfile, WAV para Groq Whisper) añadido.*
 
 *Este documento se actualiza en cada paso. No eliminar entradas pasadas; solo añadir.*
