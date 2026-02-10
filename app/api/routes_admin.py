@@ -86,7 +86,7 @@ async def test_call_twilio(request: Request, _: None = Depends(verify_api_key)):
 
 @router.post("/reset-global-stop")
 @limiter.limit("10/minute")
-async def reset_global_call_stop(_: None = Depends(verify_api_key)):
+async def reset_global_call_stop(request: Request, _: None = Depends(verify_api_key)):
     """
     Reanuda la aceptación de llamadas tras un paro global (política de errores V2).
     Requiere API key de admin.
