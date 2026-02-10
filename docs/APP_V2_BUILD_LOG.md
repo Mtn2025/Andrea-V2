@@ -18,6 +18,10 @@
 - **No hardcodear** en código ningún valor que deba venir de env (API keys, regiones, modelos, URLs, secretos). Usar siempre `app/core/config.py` (Settings / pydantic-settings); los defaults en Settings son solo fallback cuando la variable no está definida.
 - Ver `docs/PLAN_TRABAJO_PRODUCCION.md` § Contexto de despliegue.
 
+### Convención: Coolify + Traefik (puertos)
+
+- **Traefik en Coolify se encarga de todo el enrutamiento externo.** El `docker-compose.yml` del repositorio **no expone ningún puerto al host** (ni app, ni db, ni redis). La app se conecta a `db` y `redis` por la red interna; el acceso público lo gestiona Traefik. Composer limpio para Coolify, sin conflictos de puertos.
+
 ---
 
 ## Paso 1 — Estructura raíz y dominio V2 (2026-02-09)

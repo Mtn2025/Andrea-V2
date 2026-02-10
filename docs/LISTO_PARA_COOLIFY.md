@@ -2,6 +2,8 @@
 
 **Objetivo**: Verificar que el proyecto está listo para Coolify y que el **Simulador V2** funcionará sin problemas tras configurar las variables obligatorias.
 
+**Traefik**: En Coolify, **Traefik se encarga de todo el enrutamiento externo**. El `docker-compose.yml` del repositorio **no expone ningún puerto al host** (app, db, redis). Comunicación interna por red Docker; acceso público solo vía Traefik. Código limpio y correcto para este entorno.
+
 ---
 
 ## 1. Requisitos de despliegue (Coolify)
@@ -11,6 +13,7 @@
 | Docker Compose / Dockerfile | ✅ `docker-compose.yml` y `Dockerfile` en raíz; puerto **8000** expuesto. |
 | Script de arranque | ✅ `scripts/startup.sh`: espera BD, migraciones Alembic, inicia uvicorn. |
 | Health check | ✅ `GET /health` (liveness) y `GET /api/system/health` (readiness, BD + Redis). |
+| Puertos en host | ✅ Ninguno: Traefik en Coolify gestiona el acceso; compose sin `ports`. |
 | Variables desde entorno | ✅ Sin hardcodear; `app/core/config.py` (pydantic-settings) y `global_call_policy` (os.getenv). |
 | Documentación | ✅ [docs/VARIABLES_ENTORNO.md](VARIABLES_ENTORNO.md), [docs/OPERACION.md](OPERACION.md), [COOLIFY_DEPLOY.md](../COOLIFY_DEPLOY.md). |
 

@@ -8,6 +8,7 @@
 
 - **Entorno**: Docker Compose; despliegue en **Coolify**; código cargado por **git push main**.
 - **Variables de entorno**: No se comparten entre entornos; cada despliegue define las suyas. **No hardcodear** en código ningún valor que deba venir de variables de entorno (API keys, regiones, modelos, URLs, secretos). La aplicación usa `app/core/config.py` (pydantic-settings) para cargar toda la configuración desde env; los valores por defecto en Settings son solo fallback cuando la variable no está definida.
+- **Traefik (Coolify)**: Traefik se encarga de todo el enrutamiento externo. El `docker-compose.yml` **no expone ningún puerto al host** (app, db, redis); comunicación interna por red Docker; acceso público solo vía Traefik.
 
 ---
 

@@ -1,25 +1,20 @@
-version: '3.8'
+# =============================================================================
+# Coolify + Traefik: sin puertos en el host
+# =============================================================================
+# En Coolify, Traefik se encarga de todo el enrutamiento externo. Ningún servicio
+# debe exponer puertos al host (evita conflictos y es la configuración correcta).
+# - App: accesible por Traefik en la red Docker; no publicar 8000.
+# - DB y Redis: solo red interna (app → db:5432, app → redis:6379).
+# Credenciales: solo desde variables de entorno (Coolify Secrets/Env).
+# =============================================================================
 
-# =============================================================================
-# Punto A7: Credenciales interpoladas desde .env (NO hardcoded)
-# =============================================================================
-# CRITICAL: Este archivo NO debe contener passwords hardcoded
-# Todas las credenciales se leen desde archivo .env mediante interpolación ${VAR}
-#
-# Para configurar:
-# 1. Copiar .env.example a .env
-# 2. Generar password seguro: python -c "import secrets; print(secrets.token_urlsafe(32))"
-# 3. Configurar POSTGRES_PASSWORD en .env
-# 4. docker compose up
-# =============================================================================
+version: '3.8'
 
 services:
   app:
     build: .
     container_name: voice_orchestrator
-    # Use CMD from Dockerfile (runs startup.sh which includes DB wait + migrations)
     environment:
-      # ✅ Explicitly map Host Variables (Coolify) to Container
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
@@ -38,40 +33,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # ports:
-    #   - "${PORT:-8000}:8000"  <-- REMOVED for Coolify Ingress (Traefik handles routing)
     restart: always
 
   db:
     image: postgres:15-alpine
     container_name: voice_db
     environment:
-      # ✅ Punto A7: Variables interpoladas desde .env
-      # NEVER hardcode passwords here
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data_v2:/var/lib/postgresql/data
     restart: always
-
     healthcheck:
-      # Usar variable interpolada para consistencia
-      # Fix: Specify DB name (-d) to avoid defaults to username which causes logs "database Mcalderon does not exist"
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 5s
       timeout: 5s
       retries: 5
-    # Solo expone 5432 al host si necesitas conexión externa (pgAdmin, etc.).
-    # En Coolify, si falla "port 5432 already allocated", comenta la línea ports.
-    ports:
-      - "${DB_PORT:-5432}:5432"
 
-  # =============================================================================
-  # Punto A9: Redis for Horizontal Scaling
-  # =============================================================================
-  # Redis no expone puerto al host: la app se conecta por red interna (redis:6379).
-  # Evita conflicto "port 6379 already allocated" en Coolify/entornos compartidos.
   redis:
     image: redis:7-alpine
     container_name: voice_redis

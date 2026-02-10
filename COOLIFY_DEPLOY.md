@@ -1,6 +1,8 @@
 # Guía de Despliegue en Coolify (Docker) 🐳
 
-Este proyecto está **Dockerizado** y optimizado para desplegarse en [Coolify](https://coolify.io/) u cualquier orquestador de contenedores. Código cargado por **git push main**; las variables de entorno **no se comparten** entre entornos — configurarlas en cada proyecto de Coolify.
+Proyecto **Dockerizado para Coolify**. Código por **git push main**; variables de entorno en Coolify (no compartir entre entornos).
+
+**Traefik en Coolify se encarga de todo el enrutamiento externo.** El `docker-compose.yml` del repositorio **no expone ningún puerto al host** (ni app, ni db, ni redis). La app se conecta a `db` y `redis` por la red interna; el acceso público lo gestiona Traefik. Configuración correcta para Coolify, sin conflictos de puertos.
 
 **Referencia completa de variables**: [docs/VARIABLES_ENTORNO.md](docs/VARIABLES_ENTORNO.md).  
 **Operación (health, paro global, logs)**: [docs/OPERACION.md](docs/OPERACION.md).  
@@ -8,8 +10,8 @@ Este proyecto está **Dockerizado** y optimizado para desplegarse en [Coolify](h
 
 ## 1. Configuración del Proyecto en Coolify
 
-*   **Build Pack**: `Docker Compose` (Recomendado) o `Dockerfile`.
-*   **Docker Compose File**: El repositorio incluye un `docker-compose.yml`. Si usas *Dockerfile direct deployment*, asegúrate de exponer el puerto `8000`.
+*   **Build Pack**: `Docker Compose` (recomendado) o `Dockerfile`.
+*   **Docker Compose**: Usar el `docker-compose.yml` del repo; pensado para Coolify (sin `ports` en host; Traefik enruta al contenedor `app`).
 *   **Start Command**: No es necesario sobreescribir. El `Dockerfile` ya define:
     ```bash
     CMD ["./scripts/startup.sh"]
@@ -50,9 +52,8 @@ Asegúrate de que los volúmenes montados (si usas SQLite o guardas audios) teng
 
 ## 4. Solución de Problemas Comunes
 
-**Error: `Bind for 0.0.0.0:6379 failed: port is already allocated`**
-*   Causa: Redis intentaba exponer el puerto 6379 en el host y ya está en uso.
-*   Solución: En `docker-compose.yml` Redis **no** expone puerto al host; la app se conecta por red interna (`redis:6379`). Si ves este error, actualiza al último commit. Si usas un compose modificado localmente, quita la sección `ports` del servicio `redis`.
+**Error: `Bind for 0.0.0.0:XXXX failed: port is already allocated`**
+*   En Coolify, Traefik gestiona los puertos; el `docker-compose.yml` del repo **no** publica puertos en el host (app, db, redis). Si ves este error, el compose que usa Coolify no es el del repo o tiene `ports` añadidos: debe usar el compose actualizado sin ninguna sección `ports`.
 
 **Error: `UndefinedColumnError`**
 *   Causa: Los scripts de parcheo no corrieron.
