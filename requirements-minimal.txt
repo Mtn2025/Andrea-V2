@@ -7,7 +7,7 @@ uvicorn==0.40.0
 # uvicorn needs these manually
 httptools
 uvloop
-websockets==15.0.1
+websockets==16.0
 
 # Database (minimal)
 sqlalchemy==2.0.45

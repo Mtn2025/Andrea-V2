@@ -4,7 +4,7 @@
 # Web Framework - UPDATED
 fastapi~=0.128.0  # Allows 0.128.x updates
 uvicorn[standard]~=0.40.0
-websockets~=15.0.1
+websockets~=16.0.0
 itsdangerous>=2.0.0  # Required for SessionMiddleware
 
 # Database - UPDATED
