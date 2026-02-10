@@ -9,12 +9,16 @@ Decisión: Solo Groq Whisper; sin Azure STT en V2 Fase 3 para mantener dependenc
 
 Groq Whisper exige un archivo de audio válido (p. ej. WAV con cabecera). El front/envío
 suele mandar PCM crudo; aquí empaquetamos PCM en WAV (cabecera RIFF) antes de enviar.
+
+Validación de silencio: si el audio tiene RMS por debajo del umbral, no se llama a Whisper
+(evita alucinaciones de transcripción en silencio/ruido).
 """
 
 import io
 import logging
 import struct
 
+import numpy as np
 from groq import AsyncGroq
 
 from app_v2.domain.ports import STTConfig, STTPort
@@ -25,6 +29,39 @@ logger = logging.getLogger(__name__)
 # Mínimo de bytes PCM para enviar a Groq (evita 400 en fragmentos muy cortos/silencio).
 # ~0.5 s a 16 kHz mono 16-bit = 16000 bytes.
 MIN_PCM_BYTES_FOR_GROQ = 8_000
+
+# RMS normalizado (0-1) por debajo del cual se considera silencio y no se llama a Whisper.
+# Evita alucinaciones cuando el micrófono no captura voz real.
+SILENCE_RMS_THRESHOLD = 0.01
+
+
+def _pcm_bytes_from_audio(audio_bytes: bytes) -> bytes:
+    """Extrae bytes PCM (16-bit) del buffer: si es WAV, salta cabecera RIFF."""
+    if not audio_bytes:
+        return b""
+    if audio_bytes[:4] == b"RIFF":
+        return audio_bytes[44:]
+    return audio_bytes
+
+
+def _compute_rms_normalized(pcm_bytes: bytes) -> float:
+    """
+    Calcula RMS del PCM 16-bit y lo normaliza a [0, 1].
+    Retorna 0 si no hay suficientes muestras.
+    """
+    pcm = _pcm_bytes_from_audio(pcm_bytes)
+    pcm = pcm[: (len(pcm) // 2) * 2]
+    if len(pcm) < 2:
+        return 0.0
+    samples = np.frombuffer(pcm, dtype=np.int16)
+    rms = np.sqrt(np.mean(samples.astype(np.float64) ** 2))
+    return float(rms / 32768.0)
+
+
+def _is_silence(audio_bytes: bytes) -> bool:
+    """True si el audio parece silencio (RMS bajo). No llama a Whisper en ese caso."""
+    rms = _compute_rms_normalized(audio_bytes)
+    return rms < SILENCE_RMS_THRESHOLD
 
 
 def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int, channels: int = 1) -> bytes:
@@ -87,6 +124,13 @@ class GroqWhisperSTTAdapter(STTPort):
                 channels=config.channels,
             )
         if not wav_bytes:
+            return ""
+        # No enviar silencio a Whisper: evita alucinaciones de transcripción
+        if _is_silence(audio_bytes):
+            logger.debug(
+                "STT skip: audio below RMS threshold (silence), size_bytes=%s",
+                len(wav_bytes),
+            )
             return ""
         # Duración aproximada: (tamaño - 44 cabecera WAV) / (sample_rate * 2) segundos (16-bit mono)
         data_bytes = max(0, len(wav_bytes) - 44)

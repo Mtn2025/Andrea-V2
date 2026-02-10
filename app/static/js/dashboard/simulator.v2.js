@@ -19,6 +19,7 @@ export const SimulatorMixin = {
 
     nextStartTime: 0,
     bgAudio: null,
+    audioLevelIntervalId: null,
 
     // Helper for formatting time in debug log
     formatTime(ts) {
@@ -156,7 +157,23 @@ export const SimulatorMixin = {
                 }
             };
 
-            this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            try {
+                this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (err) {
+                console.error('❌ Error de micrófono (getUserMedia):', err.name, err.message);
+                if (err.name === 'NotAllowedError') {
+                    alert('Se denegó el permiso del micrófono. Habilítalo para este sitio y recarga.');
+                } else if (err.name === 'NotFoundError') {
+                    alert('No se encontró ningún micrófono.');
+                }
+                this.stopTest();
+                return;
+            }
+
+            const micTrack = this.mediaStream.getAudioTracks()[0];
+            if (micTrack) {
+                console.log('✅ Micrófono conectado:', micTrack.label);
+            }
 
             // FIX: Check if stopped during await
             if (this.simState !== 'connecting' && this.simState !== 'connected') {
@@ -172,6 +189,22 @@ export const SimulatorMixin = {
 
             const source = this.audioContext.createMediaStreamSource(this.mediaStream);
             source.connect(this.analyser);
+
+            // Monitorear nivel de audio para diagnóstico (¿mic captura algo?)
+            if (this.audioLevelIntervalId) clearInterval(this.audioLevelIntervalId);
+            this.audioLevelIntervalId = setInterval(() => {
+                if (!this.analyser || this.simState !== 'connected') return;
+                const dataArray = new Uint8Array(this.analyser.fftSize);
+                this.analyser.getByteTimeDomainData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    const v = (dataArray[i] - 128) / 128;
+                    sum += v * v;
+                }
+                const rms = Math.sqrt(sum / dataArray.length);
+                const db = rms > 1e-6 ? (20 * Math.log10(rms)).toFixed(1) : '-inf';
+                console.log('🎤 Nivel de audio: RMS=', rms.toFixed(4), 'dB≈', db);
+            }, 1000);
 
             // Load Worklet
             try {
@@ -192,12 +225,20 @@ export const SimulatorMixin = {
                     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
                     const pcm16 = event.data; // Int16Array
+                    // VAD cliente: no enviar silencio (evita alucinaciones STT)
+                    let sumSq = 0;
+                    for (let i = 0; i < pcm16.length; i++) {
+                        const s = pcm16[i] / 32768;
+                        sumSq += s * s;
+                    }
+                    const rms = Math.sqrt(sumSq / pcm16.length);
+                    const SILENCE_RMS_THRESHOLD = 0.01;
+                    if (rms < SILENCE_RMS_THRESHOLD) return;
 
                     // Convert to Base64 (Main Thread)
                     const bytes = new Uint8Array(pcm16.buffer);
                     let binary = '';
                     const len = bytes.byteLength;
-                    // Chunked optimization for large strings
                     const CHUNK_SIZE = 8192;
                     for (let i = 0; i < len; i += CHUNK_SIZE) {
                         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK_SIZE));
@@ -268,6 +309,10 @@ export const SimulatorMixin = {
 
         if (this.animationId) cancelAnimationFrame(this.animationId);
         if (this.speakingTimer) clearTimeout(this.speakingTimer);
+        if (this.audioLevelIntervalId) {
+            clearInterval(this.audioLevelIntervalId);
+            this.audioLevelIntervalId = null;
+        }
 
         const canvas = document.getElementById('visualizer');
         if (canvas) {
