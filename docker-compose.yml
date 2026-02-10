@@ -62,12 +62,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # Solo expone 5432 al host si necesitas conexión externa (pgAdmin, etc.).
+    # En Coolify, si falla "port 5432 already allocated", comenta la línea ports.
     ports:
       - "${DB_PORT:-5432}:5432"
 
   # =============================================================================
   # Punto A9: Redis for Horizontal Scaling
   # =============================================================================
+  # Redis no expone puerto al host: la app se conecta por red interna (redis:6379).
+  # Evita conflicto "port 6379 already allocated" en Coolify/entornos compartidos.
   redis:
     image: redis:7-alpine
     container_name: voice_redis
@@ -80,8 +84,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
 
 volumes:
   postgres_data_v2:

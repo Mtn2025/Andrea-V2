@@ -50,6 +50,10 @@ Asegúrate de que los volúmenes montados (si usas SQLite o guardas audios) teng
 
 ## 4. Solución de Problemas Comunes
 
+**Error: `Bind for 0.0.0.0:6379 failed: port is already allocated`**
+*   Causa: Redis intentaba exponer el puerto 6379 en el host y ya está en uso.
+*   Solución: En `docker-compose.yml` Redis **no** expone puerto al host; la app se conecta por red interna (`redis:6379`). Si ves este error, actualiza al último commit. Si usas un compose modificado localmente, quita la sección `ports` del servicio `redis`.
+
 **Error: `UndefinedColumnError`**
 *   Causa: Los scripts de parcheo no corrieron.
 *   Solución: Revisar logs de inicio. El script `startup.sh` imprime `🛠️ Applying manual patches...`. Si fallan, verificar credenciales de DB.
