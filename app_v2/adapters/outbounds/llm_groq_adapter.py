@@ -31,9 +31,15 @@ class GroqLLMAdapter(LLMPort):
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
         if request.system_prompt:
             messages.insert(0, {"role": "system", "content": request.system_prompt})
+        model = request.model or self._model
+        logger.debug(
+            "LLM request: model=%s message_count=%s",
+            model,
+            len(messages),
+        )
         try:
             stream = await self._client.chat.completions.create(
-                model=request.model or self._model,
+                model=model,
                 messages=messages,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,

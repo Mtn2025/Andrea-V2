@@ -96,8 +96,13 @@ def configure_logging():
     root_logger.setLevel(logging.DEBUG)
 
     # Silence noisy libraries (Keep them quiet even in Debug mode to avoid flood)
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING) # We will log requests ourselves or use generic
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Groq SDK y httpcore: WARNING para no loguear cuerpos de petición (incl. audio binario en STT)
+    logging.getLogger("groq").setLevel(logging.WARNING)
+    logging.getLogger("groq._base_client").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     # Log startup
     logger = logging.getLogger("app.core.logging_config")

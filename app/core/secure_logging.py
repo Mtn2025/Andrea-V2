@@ -30,19 +30,40 @@ SECRET_KEYS = {
 }
 
 
+# Redactar representaciones de datos binarios en logs (evita volcar audio/imágenes)
+# Reemplaza b'...' o b"...' de más de 50 caracteres por placeholder
+_BINARY_REPR_PATTERN = re.compile(
+    r"b[\'\"]((?:[^\'\\]|\\.){50,})[\'\"]",
+    re.DOTALL,
+)
+
+
+def _redact_binary_repr(message: str) -> str:
+    """Sustituye repr de bytes largos por '<binary N bytes>'."""
+    def repl(m: re.Match) -> str:
+        inner = m.group(1)
+        # Aproximar tamaño (escapados \xNN cuentan como 1)
+        n = len(inner) + 2  # +2 por b''
+        return f"<binary ~{n} bytes>"
+    return _BINARY_REPR_PATTERN.sub(repl, message)
+
+
 def sanitize_log_message(message: str) -> str:
     """
-    Sanitiza un mensaje de log reemplazando secretos con placeholders.
+    Sanitiza un mensaje de log: secretos y contenido binario (audio, etc.).
 
     Args:
         message: Mensaje original del log
 
     Returns:
-        Mensaje sanitizado sin secretos expuestos
+        Mensaje sanitizado sin secretos ni volcados binarios
     """
     sanitized = message
 
-    # Aplicar patrones regex
+    # Redactar datos binarios (p. ej. audio WAV en peticiones STT)
+    sanitized = _redact_binary_repr(sanitized)
+
+    # Aplicar patrones regex de secretos
     for pattern, replacement in SECRET_PATTERNS:
         sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
 

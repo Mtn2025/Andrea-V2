@@ -224,6 +224,13 @@ async def telephony_media_stream(
 
     try:
         while True:
+            # Si el transport ya detectó cierre (p. ej. send falló), salir del loop
+            if not transport.is_connected():
+                logger.info(
+                    "Telephony WS loop exiting: transport no longer connected (client=%s)",
+                    client_id,
+                )
+                break
             data = await websocket.receive_text()
             msg = json.loads(data)
             event = msg.get("event")
@@ -253,16 +260,51 @@ async def telephony_media_stream(
                         break
                     except Exception as e:
                         logger.warning("process_audio failed: %s", e)
+                    # Tras process_audio, el cliente pudo colgar; evitar más envíos
+                    if not transport.is_connected():
+                        logger.info(
+                            "Telephony WS closed during/after process_audio: client_id=%s",
+                            client_id,
+                        )
+                        break
             elif event == "stop":
+                logger.info("Telephony WS event stop: client_id=%s", client_id)
                 break
             elif event == "client_interruption":
                 pass
-    except WebSocketDisconnect:
-        logger.info("Telephony disconnected: %s", client_id)
+    except WebSocketDisconnect as e:
+        code = getattr(e, "code", None)
+        reason = getattr(e, "reason", None) or str(e)
+        logger.info(
+            "Telephony WebSocket disconnected: client_id=%s code=%s reason=%s",
+            client_id,
+            code,
+            reason,
+        )
+    except asyncio.CancelledError:
+        logger.info("Telephony WebSocket task cancelled: client_id=%s", client_id)
+    except asyncio.TimeoutError as e:
+        logger.warning(
+            "Telephony WebSocket timeout: client_id=%s error=%s",
+            client_id,
+            e,
+        )
     except Exception as e:
-        logger.error("Telephony WS error: %s", e)
+        logger.error(
+            "Telephony WS error: client_id=%s error=%s",
+            client_id,
+            e,
+            exc_info=True,
+        )
     finally:
+        logger.debug("Telephony WS cleanup: client_id=%s (disconnect, stop orchestrator, close ws)", client_id)
+        # Marcar transport como cerrado primero para que ningún send pendiente intente usar el WS
+        await transport.close()
         manager.disconnect(client_id, websocket)
-        await orchestrator.stop()
-        with contextlib.suppress(RuntimeError):
+        try:
+            await orchestrator.stop()
+        except Exception as e:
+            logger.warning("Orchestrator stop failed during cleanup: %s", e)
+        with contextlib.suppress(RuntimeError, Exception):
             await websocket.close()
+        logger.info("Telephony WS closed: client_id=%s", client_id)

@@ -71,6 +71,12 @@ class AzureTTSAdapter(TTSPort):
         )
 
     async def synthesize(self, request: TTSRequest) -> bytes:
+        logger.debug(
+            "TTS request: voice_id=%s language=%s text_len=%s",
+            request.voice_id,
+            request.language,
+            len(request.text),
+        )
         ssml = _build_ssml(request)
         fd, path = tempfile.mkstemp(suffix=".raw")
         os.close(fd)

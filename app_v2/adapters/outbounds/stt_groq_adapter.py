@@ -88,6 +88,15 @@ class GroqWhisperSTTAdapter(STTPort):
             )
         if not wav_bytes:
             return ""
+        # Duración aproximada: (tamaño - 44 cabecera WAV) / (sample_rate * 2) segundos (16-bit mono)
+        data_bytes = max(0, len(wav_bytes) - 44)
+        duration_sec = data_bytes / (config.sample_rate * 2) if config.sample_rate else 0
+        logger.debug(
+            "STT request: size_bytes=%s format=WAV duration_sec=%.2f model=%s",
+            len(wav_bytes),
+            duration_sec,
+            self._model,
+        )
         audio_file = io.BytesIO(wav_bytes)
         audio_file.name = "audio.wav"
         try:
