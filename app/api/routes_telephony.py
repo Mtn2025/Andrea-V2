@@ -186,10 +186,12 @@ async def telephony_media_stream(
         api_key=settings.GROQ_API_KEY or "",
         model=getattr(settings, "GROQ_MODEL", None) or "llama-3.3-70b-versatile",
     )
+    # Browser expects 16 kHz PCM; Telnyx/Twilio expect 8 kHz µ-law
+    tts_output_format = "pcm_16k" if client == "browser" else "mulaw_8k"
     tts_port = AzureTTSAdapter(
         api_key=settings.AZURE_SPEECH_KEY or "",
         region=settings.AZURE_SPEECH_REGION or "eastus",
-        output_format="mulaw_8k",
+        output_format=tts_output_format,
     )
     persistence = V2CallPersistenceAdapter(session_factory=AsyncSessionLocal)
     extraction = V2ExtractionAdapter()

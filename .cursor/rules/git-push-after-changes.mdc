@@ -1,0 +1,16 @@
+---
+description: Después de cambiar código, hacer add, commit y push a Git
+alwaysApply: true
+---
+
+# Git: subir cambios tras editar
+
+Cuando hagas **cualquier cambio** en archivos del proyecto (código, config, docs del repo):
+
+1. **Añadir** los archivos modificados: `git add <archivos>` o `git add -A` si aplica.
+2. **Commit** con mensaje claro: `git commit -m "tipo(ámbito): descripción breve"` (ej. `fix(audio): TTS 16kHz para browser`).
+3. **Push** a la rama actual: `git push`.
+
+- Usar PowerShell: encadenar con `;` (no `&&`).
+- Si el usuario pide no subir a Git, no ejecutes push.
+- Si hay conflictos o el push falla, informar y no forzar.
