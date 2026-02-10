@@ -75,7 +75,10 @@ export const SimulatorMixin = {
 
                     if (msg.event === 'media' || msg.type === 'audio') {
                         const payload = msg.media ? msg.media.payload : (msg.data || msg.media?.payload);
-                        if (payload) this.playAudio(payload);
+                        if (payload) {
+                            this.isAgentSpeaking = true;
+                            this.playAudio(payload);
+                        }
                     } else if (msg.type === 'config') {
                         if (msg.config.background_sound && msg.config.background_sound !== 'none') {
                             this.playBackgroundSound(msg.config.background_sound);
@@ -148,11 +151,11 @@ export const SimulatorMixin = {
                 this.outputAnalyser.connect(this.audioContext.destination);
             }
 
-            // 3. Get Media Stream
+            // 3. Get Media Stream (echoCancellation CRÍTICO para evitar que el mic capture el TTS)
             const constraints = {
                 audio: {
-                    echoCancellation: this.c && this.c.denoise,
-                    noiseSuppression: this.c && this.c.denoise,
+                    echoCancellation: true,
+                    noiseSuppression: true,
                     autoGainControl: true
                 }
             };
@@ -223,6 +226,11 @@ export const SimulatorMixin = {
                 // Handle Messages from Worklet (Mic Data)
                 this.processor.port.onmessage = (event) => {
                     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+                    // Anti-eco: no enviar mic mientras el asistente habla (evita bucle de retroalimentación)
+                    if (this.isAgentSpeaking) {
+                        console.log('⏸️ Ignorando audio del mic (asistente hablando)');
+                        return;
+                    }
 
                     const pcm16 = event.data; // Int16Array
                     // VAD cliente: no enviar silencio (evita alucinaciones STT)
@@ -336,12 +344,11 @@ export const SimulatorMixin = {
             // Feed to Worklet (Ring Buffer)
             this.processor.port.postMessage(pcm16);
 
-            // Visualizer State (Optimistic)
-            this.isAgentSpeaking = true;
+            // Visualizer State + anti-eco: mantener flag 500ms después del último chunk
             if (this.speakingTimer) clearTimeout(this.speakingTimer);
             this.speakingTimer = setTimeout(() => {
                 this.isAgentSpeaking = false;
-            }, 300); // Debounce duration (since we are streaming chunks)
+            }, 500); // Cooldown tras TTS para evitar que el mic capture el eco
 
         } catch (e) {
             console.error("Playback Error", e);

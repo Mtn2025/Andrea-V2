@@ -18,6 +18,7 @@ Docs: docs/POLITICAS_Y_FLUJOS.md, docs/APP_V2_BUILD_LOG.md Pasos 5 y 6.
 """
 
 import logging
+import time
 
 from app_v2.domain.ports import (
     AudioTransport,
@@ -72,6 +73,7 @@ class Orchestrator:
         self._config: CallConfig | None = None
         self._conversation_history: list[LLMMessage] = []
         self._call_db_id: int | None = None
+        self._last_tts_sent_at: float | None = None
 
     async def start(self) -> None:
         """
@@ -129,6 +131,7 @@ class Orchestrator:
                         audio_bytes,
                         sample_rate=self._config.sample_rate,
                     )
+                    self._last_tts_sent_at = time.time()
             except Exception as e:
                 logger.warning("Apology TTS failed, closing anyway: %s", e)
         await self._transport.close()
@@ -156,6 +159,15 @@ class Orchestrator:
         """
         if self._config is None:
             return
+        # Protección anti-eco: rechazar audio entrante poco después de enviar TTS
+        if self._last_tts_sent_at is not None:
+            elapsed = time.time() - self._last_tts_sent_at
+            if elapsed < 2.0:
+                logger.debug(
+                    "Rechazando audio (eco protection: %.2fs desde último TTS)",
+                    elapsed,
+                )
+                return
         try:
             stt_p = STTProcessor(self._stt, self._config)
             llm_p = LLMProcessor(self._llm, self._config, self._conversation_history)
@@ -171,6 +183,7 @@ class Orchestrator:
                     result.data,
                     sample_rate=result.sample_rate,
                 )
+                self._last_tts_sent_at = time.time()
         except CriticalCallError:
             raise
         except Exception as e:
